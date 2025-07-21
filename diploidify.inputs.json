@@ -1,0 +1,5 @@
+{
+  "diploidify.bams": ["{{BAMS}}"],
+  "diploidify.vcf": "{{VCF}}",
+  "diploidify.chrom_sizes": "{{CHROM_SIZES}}"
+}

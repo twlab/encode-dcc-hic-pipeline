@@ -1,6 +1,9 @@
 version 1.0
 
-import "./hic.wdl"
+struct RuntimeEnvironment {
+    String docker
+    String singularity
+}
 
 workflow diploidify {
     meta {
@@ -44,21 +47,27 @@ workflow diploidify {
 
     call filter_chrom_sizes { input:
         chrom_sizes = chrom_sizes,
-    }
-
-    call hic.merge as merge { input:
-        bams = bams,
-        num_cpus = merge_num_cpus,
-        ram_gb = merge_ram_gb,
-        disk_size_gb = merge_disk_size_gb,
         runtime_environment = runtime_environment,
     }
 
+    if ( length(bams) > 1 ) {
+        call merge { input:
+            bams = bams,
+            runtime_environment = runtime_environment,
+            num_cpus = merge_num_cpus,
+            ram_gb = merge_ram_gb,
+            disk_size_gb = merge_disk_size_gb,
+        }
+    }
+
+    File merged_bam = select_first([merge.bam, bams[0]])
+
     call prepare_bam { input:
-        bam = merge.bam,
+        bam = merged_bam,
         quality = quality,
         vcf = vcf,
         chrom_sizes = chrom_sizes,
+        runtime_environment = runtime_environment,
         num_cpus = prepare_bam_num_cpus,
         ram_gb = prepare_bam_ram_gb,
         disk_size_gb = prepare_bam_disk_size_gb,
@@ -70,6 +79,7 @@ workflow diploidify {
         vcf = vcf,
         chrom_sizes = filter_chrom_sizes.filtered_chrom_sizes,
         resolutions = create_diploid_hic_resolutions,
+        runtime_environment = runtime_environment,
         num_cpus = create_diploid_hic_num_cpus,
         ram_gb = create_diploid_hic_ram_gb,
         disk_size_gb = create_diploid_hic_disk_size_gb,
@@ -80,6 +90,7 @@ workflow diploidify {
         bam_index = prepare_bam.bam_index,
         chrom_sizes = chrom_sizes,
         reads_to_homologs = create_diploid_hic.reads_to_homologs,
+        runtime_environment = runtime_environment,
         num_cpus = create_diploid_dhs_num_cpus,
         ram_gb = create_diploid_dhs_ram_gb,
         disk_size_gb = create_diploid_dhs_disk_size_gb,
@@ -90,6 +101,7 @@ task filter_chrom_sizes {
     input {
         File chrom_sizes
         String output_filename = "filtered.chrom.sizes"
+        RuntimeEnvironment runtime_environment
     }
 
     command <<<
@@ -98,6 +110,13 @@ task filter_chrom_sizes {
 
     output {
         File filtered_chrom_sizes = output_filename
+    }
+
+    runtime {
+        docker: runtime_environment.docker
+        cpu: 1
+        memory: "2 GB"
+        disks: "local-disk 10 HDD"
     }
 }
 
@@ -110,6 +129,7 @@ task prepare_bam {
         Int num_cpus = 8
         Int ram_gb = 64
         Int disk_size_gb = 2000
+        RuntimeEnvironment runtime_environment
     }
 
     command <<<
@@ -134,6 +154,7 @@ task prepare_bam {
     }
 
     runtime {
+        docker: runtime_environment.docker
         cpu: num_cpus
         memory: "~{ram_gb} GB"
         disks: "local-disk ~{disk_size_gb} HDD"
@@ -151,6 +172,7 @@ task create_diploid_hic {
         Int num_cpus = 24
         Int ram_gb = 128
         Int disk_size_gb = 2000
+        RuntimeEnvironment runtime_environment
     }
 
     command <<<
@@ -179,6 +201,7 @@ task create_diploid_hic {
     }
 
     runtime {
+        docker: runtime_environment.docker
         cpu: num_cpus
         memory: "~{ram_gb} GB"
         disks: "local-disk ~{disk_size_gb} HDD"
@@ -194,6 +217,7 @@ task create_diploid_dhs {
         Int num_cpus = 2
         Int ram_gb = 128
         Int disk_size_gb = 1000
+        RuntimeEnvironment runtime_environment
     }
 
     command <<<
@@ -219,7 +243,41 @@ task create_diploid_dhs {
     }
 
     runtime {
+        docker: runtime_environment.docker
         cpu: num_cpus
+        memory: "~{ram_gb} GB"
+        disks: "local-disk ~{disk_size_gb} HDD"
+    }
+}
+
+task merge { # from hic.wdl
+    input {
+        Array[File] bams
+        Int num_cpus = 8
+        Int ram_gb = 16
+        Int disk_size_gb = 6000
+        String output_bam_filename = "merged"
+        RuntimeEnvironment runtime_environment
+    }
+
+    command <<<
+        set -euo pipefail
+        samtools merge \
+            -c \
+            -t cb \
+            -n \
+            --threads ~{num_cpus - 1} \
+            ~{output_bam_filename}.bam \
+            ~{sep=' ' bams}
+    >>>
+
+    output {
+        File bam = "~{output_bam_filename}.bam"
+    }
+
+    runtime {
+        docker: runtime_environment.docker
+        cpu : "~{num_cpus}"
         memory: "~{ram_gb} GB"
         disks: "local-disk ~{disk_size_gb} HDD"
     }

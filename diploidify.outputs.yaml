@@ -1,0 +1,16 @@
+diploidify.filter_chrom_sizes:
+  - filtered_chrom_sizes
+diploidify.prepare_bam:
+  - filtered_bam
+  - bam_index
+diploidify.create_diploid_hic:
+  - hic_r
+  - hic_a
+  - reads_to_homologs
+diploidify.task create_diploid_dhs:
+  - bigwig_raw_r
+  - bigwig_raw_a
+  - bigwig_corrected_r
+  - bigwig_corrected_a
+diploidify.task merge:
+  - bam
